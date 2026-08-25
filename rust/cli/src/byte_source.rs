@@ -43,8 +43,8 @@ pub struct LocalFileSource {
 
 impl LocalFileSource {
     fn open_path(path: &Path) -> Result<Self> {
-        let file = File::open(path)
-            .with_context(|| format!("couldn't open '{}'", path.display()))?;
+        let file =
+            File::open(path).with_context(|| format!("couldn't open '{}'", path.display()))?;
         let size = file
             .metadata()
             .with_context(|| format!("couldn't stat '{}'", path.display()))?
@@ -174,37 +174,6 @@ impl ByteSource for MemorySource {
     }
 }
 
-/// Pure stdin. Not seekable; [`read_at`] always errors.
-///
-/// Prefer [`open_byte_source`] with `path: None`, which spools stdin to a tempfile
-/// and returns a seekable [`LocalFileSource`].
-#[allow(dead_code)] // Documented non-seekable source; production paths spool via open_byte_source.
-pub struct StdinSource;
-
-impl ByteSource for StdinSource {
-    fn size(&self) -> Result<Option<u64>> {
-        Ok(None)
-    }
-
-    fn is_remote(&self) -> bool {
-        false
-    }
-
-    fn display_name(&self) -> String {
-        "<stdin>".to_string()
-    }
-
-    fn read_at(&mut self, _offset: u64, _len: usize) -> Result<Vec<u8>> {
-        bail!(
-            "stdin is not seekable; spool to a temporary file before random-access reads"
-        );
-    }
-
-    fn is_seekable(&self) -> bool {
-        false
-    }
-}
-
 /// Open a path, remote URL, or stdin as a [`ByteSource`].
 ///
 /// - `None` spools stdin to a tempfile (seek+read, no mmap).
@@ -226,10 +195,7 @@ pub fn open_byte_source(
     Ok(Box::new(LocalFileSource::open_path(path)?))
 }
 
-fn open_remote_byte_source(
-    path: &Path,
-    options: SourceOptions,
-) -> Result<Box<dyn ByteSource>> {
+fn open_remote_byte_source(path: &Path, options: SourceOptions) -> Result<Box<dyn ByteSource>> {
     match open_remote_range_reader(path)? {
         Some(reader) => Ok(Box::new(RemoteRangeSource::new(reader))),
         None if !options.allow_remote_scan => {
@@ -388,8 +354,7 @@ mod tests {
         let summary = read_summary(&mut source)
             .expect("summary read")
             .expect("summary should exist");
-        let mut reader =
-            mcap::sans_io::IndexedReader::new(&summary).expect("indexed reader");
+        let mut reader = mcap::sans_io::IndexedReader::new(&summary).expect("indexed reader");
         let mut messages = 0usize;
         while let Some(event) = reader.next_event() {
             match event.expect("indexed event") {
@@ -403,14 +368,5 @@ mod tests {
             }
         }
         assert_eq!(messages, 1);
-    }
-
-    #[test]
-    fn stdin_source_rejects_random_access() {
-        let mut source = StdinSource;
-        assert!(!source.is_seekable());
-        assert!(source.size().expect("size").is_none());
-        let err = source.read_at(0, 1).expect_err("stdin read_at");
-        assert!(err.to_string().contains("not seekable"));
     }
 }
